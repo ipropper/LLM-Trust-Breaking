@@ -10,7 +10,7 @@ def wilson(hits: int, n: int, z: float = 1.96):
     p = hits / n
     centre = (p + z * z / (2 * n)) / (1 + z * z / n)
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return (centre - half, centre + half)
+    return (max(0.0, centre - half), min(1.0, centre + half))
 
 
 def score(truth: list, guesses: list) -> dict:
