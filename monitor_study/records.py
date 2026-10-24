@@ -40,8 +40,9 @@ def invalid_reason(a: dict) -> Optional[str]:
 def iter_records(log_path=DEFAULT_LOG, seats_path=DEFAULT_SEATS, skipped=None) -> Iterator[dict]:
     """Yield one flat dict per clean agent-round.
 
-    The private plan (stage1) is checked but never yielded, so it can't leak into a
-    monitor view. Pass a list as `skipped` to collect (record, reason) for rejects.
+    The private plan (stage1) is yielded as "plan" for the results table only; monitor
+    prompts are built from monitor.PUBLIC_FIELDS, so it can't leak into a view.
+    Pass a list as `skipped` to collect (record, reason) for rejects.
     """
     # The pilot log is ~400 KB, so json.load is fine. Swap in ijson here if logs get big.
     with open(log_path) as f:
@@ -59,6 +60,7 @@ def iter_records(log_path=DEFAULT_LOG, seats_path=DEFAULT_SEATS, skipped=None) -
                     "announced": a["stage2"].get("stated_action"),
                     "message": a["stage2"].get("message", ""),
                     "chose": a["stage3"].get("choice"),
+                    "plan": a["stage1"].get("intended_action"),  # private: never shown to the monitor
                     # Answer keys, computed by the repo and checked in invalid_reason.
                     # planned_lie (private plan != announcement) is what the monitor predicts;
                     # lied (announcement != actual order) is kept for analysis.

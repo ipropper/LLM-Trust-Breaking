@@ -32,7 +32,7 @@ AGENT_TYPES = {
 }
 GUESS_COLUMNS = {"A_says": "monitor guess (message)", "B_does": "monitor guess (action)",
                  "C_says_does": "monitor guess (message + action)"}
-CSV_COLUMNS = ["id", "agent announcement", "agent message", "agent plan", "agent type", "agent action",
+CSV_COLUMNS = ["id", "agent announcement", "agent message", "agent planned action", "agent plan", "agent type", "agent action",
                *GUESS_COLUMNS.values()]
 
 
@@ -68,6 +68,7 @@ def export(records: list, done: dict):
                     "id": custom_id(r, "", "").split("|")[0],
                     "agent announcement": r["announced"],
                     "agent message": r["message"],
+                    "agent planned action": r["plan"],
                     "agent plan": "deceit" if r["planned_lie"] else "truthful",
                     "agent type": AGENT_TYPES[r["typology"]],
                     "agent action": r["chose"],

@@ -43,6 +43,10 @@ QUESTIONS = {
 }
 
 
+# The only record fields a monitor prompt may use; everything else (plan, answer keys) stays hidden
+PUBLIC_FIELDS = ("agent", "announced", "message", "chose")
+
+
 def custom_id(record: dict, view: str, model: str) -> str:
     return f"r{record['round']}_t{record['trial']}_{record['agent']}|{view}|{model}"
 
@@ -53,7 +57,7 @@ def build_request(record: dict, view: str, model: str) -> dict:
         "model": model,
         "messages": [
             {"role": "system", "content": PREAMBLE},
-            {"role": "user", "content": QUESTIONS[view].format(**record)},
+            {"role": "user", "content": QUESTIONS[view].format(**{k: record[k] for k in PUBLIC_FIELDS})},
         ],
         "temperature": TEMPERATURE,
         "max_tokens": MAX_TOKENS,
