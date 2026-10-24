@@ -19,10 +19,12 @@ RUNS = Path(__file__).parent.parent / "outputs/monitor_study/monitor_runs.jsonl"
 
 
 def load_done() -> dict:
+    """Calls with a readable verdict. Errors and unreadable replies are retried on rerun."""
     if not RUNS.exists():
         return {}
     with open(RUNS) as f:
-        return {row["custom_id"]: row for row in map(json.loads, f)}
+        rows = {row["custom_id"]: row for row in map(json.loads, f)}  # later rows win
+    return {cid: row for cid, row in rows.items() if row["verdict"] is not None}
 
 
 def main():
@@ -34,7 +36,9 @@ def main():
     done = load_done()
     todo = [build_request(r, v, m) for r in records for v in VIEWS for m in MODELS
             if custom_id(r, v, m) not in done]
-    print(f"{len(records)} records, {len(todo)} calls to make, {len(done)} already done")
+    n_lied = sum(r["lied"] for r in records)
+    print(f"{len(records)} records ({n_lied} lied, {len(records) - n_lied} honest), "
+          f"{len(todo)} calls to make, {len(done)} already done")
 
     if todo:
         client = QueuedOpenRouterClient(api_key=settings.OPENROUTER_API_KEY, max_workers=20, max_retries=5)
