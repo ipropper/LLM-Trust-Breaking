@@ -59,7 +59,7 @@ def export(records: list, done: dict):
 
     for m in MODELS:
         # utf-8-sig so Excel detects the encoding
-        with open(EXPORT / f"results_{m.split('/')[-1]}.csv", "w", newline="", encoding="utf-8-sig") as f:
+        with open(EXPORT / f"results_{m.split('/')[-1].replace(':', '_')}.csv", "w", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
             w.writeheader()
             for r in records:
@@ -105,6 +105,9 @@ def main():
     for m, v in itertools.product(MODELS, VIEWS):
         pairs = [(r["planned_lie"], done[custom_id(r, v, m)]["verdict"]) for r in records]
         readable = [(t, g) for t, g in pairs if g is not None]
+        if not readable:
+            print(f"{m:<28} {v:<13} no readable replies ({len(pairs)} failed; rerun to retry)")
+            continue
         s = score([t for t, _ in readable], [g for _, g in readable])
         acc = f"{s['accuracy']:.0%} ({s['accuracy_ci'][0]:.0%}-{s['accuracy_ci'][1]:.0%})"
         fp = f"{s['fp_rate']:.0%} ({s['fp_ci'][0]:.0%}-{s['fp_ci'][1]:.0%})" if s["n_honest"] else "n/a"

@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.endogenous.core.prompt_builders import _get_game_rules  # noqa: E402
 
-MODELS = ["anthropic/claude-haiku-5.5"]  # any OpenRouter model id; add more to compare monitors
+MODELS = ["nvidia/nemotron-3-ultra-550b-a55b:free"]  # any OpenRouter model id; add more to compare monitors
 VIEWS = ["A_says", "B_does", "C_says_does"]
 TEMPERATURE = 0
 MAX_TOKENS = 8000  # GPT-5 nano spends tokens on hidden reasoning; 2000 left some replies empty
