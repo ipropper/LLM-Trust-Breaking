@@ -2,6 +2,7 @@
 
 import json
 import random
+from collections import Counter
 from pathlib import Path
 
 from baselines import coin_flip, keyword_says_vs_does, says_vs_does
@@ -29,7 +30,10 @@ def main():
             guesses["C says+does keyword"].append(keyword_says_vs_does(r))
             guesses["D says+does structured"].append(says_vs_does(r))
 
-    print(f"records: {len(truth)} usable ({sum(truth)} lied, {len(truth) - sum(truth)} honest), {len(skipped)} skipped\n")
+    print(f"records: {len(truth)} usable ({sum(truth)} lied, {len(truth) - sum(truth)} honest), {len(skipped)} skipped")
+    for reason, n in Counter(reason for _, reason in skipped).most_common():
+        print(f"  skipped {n:>3}: {reason}")
+    print()
     print(f"{'baseline':<26} {'accuracy (95% range)':<24} {'false-positive rate (95% range)'}")
     for name, g in guesses.items():
         s = score(truth, g)
