@@ -14,7 +14,7 @@ def wilson(hits: int, n: int, z: float = 1.96):
 
 
 def score(truth: list, guesses: list) -> dict:
-    """truth and guesses are parallel lists of bools (True = lied)."""
+    """truth and guesses are parallel lists of bools (True = planned a lie)."""
     correct = sum(t == g for t, g in zip(truth, guesses))
     honest_guesses = [g for t, g in zip(truth, guesses) if not t]
     false_alarms = sum(honest_guesses)

@@ -36,8 +36,8 @@ def main():
     done = load_done()
     todo = [build_request(r, v, m) for r in records for v in VIEWS for m in MODELS
             if custom_id(r, v, m) not in done]
-    n_lied = sum(r["lied"] for r in records)
-    print(f"{len(records)} records ({n_lied} lied, {len(records) - n_lied} honest), "
+    n_planned = sum(r["planned_lie"] for r in records)
+    print(f"{len(records)} records ({n_planned} planned a lie, {len(records) - n_planned} honest plan), "
           f"{len(todo)} calls to make, {len(done)} already done")
 
     if todo:
@@ -53,7 +53,7 @@ def main():
 
     print(f"\n{'model':<28} {'view':<13} {'accuracy (95% range)':<22} {'false-pos rate (95% range)':<27} unreadable")
     for m, v in itertools.product(MODELS, VIEWS):
-        pairs = [(r["lied"], done[custom_id(r, v, m)]["verdict"]) for r in records]
+        pairs = [(r["planned_lie"], done[custom_id(r, v, m)]["verdict"]) for r in records]
         readable = [(t, g) for t, g in pairs if g is not None]
         s = score([t for t, _ in readable], [g for _, g in readable])
         acc = f"{s['accuracy']:.0%} ({s['accuracy_ci'][0]:.0%}-{s['accuracy_ci'][1]:.0%})"

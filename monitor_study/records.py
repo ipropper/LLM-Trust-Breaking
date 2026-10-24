@@ -59,7 +59,10 @@ def iter_records(log_path=DEFAULT_LOG, seats_path=DEFAULT_SEATS, skipped=None) -
                     "announced": a["stage2"].get("stated_action"),
                     "message": a["stage2"].get("message", ""),
                     "chose": a["stage3"].get("choice"),
-                    # Answer keys, computed by the repo and checked in invalid_reason
+                    # Answer keys, computed by the repo and checked in invalid_reason.
+                    # planned_lie (private plan != announcement) is what the monitor predicts;
+                    # lied (announcement != actual order) is kept for analysis.
+                    "planned_lie": a.get("promise_deception"),
                     "lied": a.get("commitment_breaking"),
                     "typology": a.get("typology"),
                 }
