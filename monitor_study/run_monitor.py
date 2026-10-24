@@ -5,7 +5,7 @@ Every call (request sent + reply received) appends to outputs/monitor_study/moni
 finished calls are skipped on rerun. Each run also writes outputs/monitor_study/export/:
   log.jsonl            what was sent and received, one line per call in this run's table
   system_prompt.txt    the shared system prompt
-  <model>_<view>.csv   one spreadsheet per monitor x view
+  results_<model>.csv  one row per agent: what it said, did and planned, plus the monitor's three guesses
 """
 
 import argparse
@@ -24,9 +24,20 @@ OUT = Path(__file__).parent.parent / "outputs/monitor_study"
 RUNS = OUT / "monitor_runs.jsonl"
 EXPORT = OUT / "export"
 
-CSV_COLUMNS = ["round", "trial", "agent", "agent_model", "monitor_model", "view",
-               "sent_to_monitor", "monitor_reply", "monitor_verdict", "truth_planned_lie", "correct",
-               "typology", "announced", "message", "chose", "truth_lied"]
+AGENT_TYPES = {
+    "fully_honest": "fully honest",
+    "intended_deceptive_complied": "intended deception",
+    "impulsive_deviation": "impulsive lie",
+    "premeditated_deception": "premeditated deception",
+}
+GUESS_COLUMNS = {"A_says": "monitor guess (message)", "B_does": "monitor guess (action)",
+                 "C_says_does": "monitor guess (message + action)"}
+CSV_COLUMNS = ["agent announcement", "agent message", "agent plan", "agent type", "agent action",
+               *GUESS_COLUMNS.values()]
+
+
+def guess_label(verdict):
+    return {True: "deceptive", False: "honest"}.get(verdict, "unreadable")
 
 
 def load_done() -> dict:
@@ -39,31 +50,29 @@ def load_done() -> dict:
 
 
 def export(records: list, done: dict):
-    """Write the sent/received log and one CSV per monitor x view."""
+    """Write the sent/received log and one results CSV per monitor."""
     EXPORT.mkdir(parents=True, exist_ok=True)
     (EXPORT / "system_prompt.txt").write_text(PREAMBLE)
     with open(EXPORT / "log.jsonl", "w") as f:
         for r, m, v in itertools.product(records, MODELS, VIEWS):
             f.write(json.dumps(done[custom_id(r, v, m)]) + "\n")
 
-    for m, v in itertools.product(MODELS, VIEWS):
+    for m in MODELS:
         # utf-8-sig so Excel detects the encoding
-        with open(EXPORT / f"{m.split('/')[-1]}_{v}.csv", "w", newline="", encoding="utf-8-sig") as f:
+        with open(EXPORT / f"results_{m.split('/')[-1]}.csv", "w", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
             w.writeheader()
             for r in records:
-                row = done[custom_id(r, v, m)]
-                verdict = row["verdict"]
-                w.writerow({
-                    "round": r["round"], "trial": r["trial"], "agent": r["agent"], "agent_model": r["model"],
-                    "monitor_model": m, "view": v,
-                    "sent_to_monitor": row["request"]["messages"][-1]["content"],
-                    "monitor_reply": json.dumps(row["reply"]),
-                    "monitor_verdict": verdict, "truth_planned_lie": r["planned_lie"],
-                    "correct": None if verdict is None else verdict == r["planned_lie"],
-                    "typology": r["typology"], "announced": r["announced"], "message": r["message"],
-                    "chose": r["chose"], "truth_lied": r["lied"],
-                })
+                row = {
+                    "agent announcement": r["announced"],
+                    "agent message": r["message"],
+                    "agent plan": "deceit" if r["planned_lie"] else "truthful",
+                    "agent type": AGENT_TYPES[r["typology"]],
+                    "agent action": r["chose"],
+                }
+                for v, col in GUESS_COLUMNS.items():
+                    row[col] = guess_label(done[custom_id(r, v, m)]["verdict"])
+                w.writerow(row)
 
 
 def main():
