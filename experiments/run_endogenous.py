@@ -282,7 +282,7 @@ def main():
                 api_key=settings.OPENROUTER_API_KEY,
                 max_workers=25,
                 timeout=120,
-                max_retries=5,
+                max_retries=8,
             )
             print("Created OpenRouter queued client (max_workers=25)")
 

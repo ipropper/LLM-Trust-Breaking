@@ -53,6 +53,15 @@ class QueuedOpenRouterClient:
         self.timeout = timeout
         self.max_retries = max_retries
 
+    @staticmethod
+    def _retry_wait(attempt: int, error: Optional[aiohttp.ClientResponseError] = None) -> float:
+        """Seconds before the next try: the server's Retry-After if sent, else 2, 4, 8 ... capped at 60."""
+        retry_after = error.headers.get("Retry-After") if error is not None and error.headers else None
+        try:
+            return min(float(retry_after), 60.0)
+        except (TypeError, ValueError):
+            return min(2 ** (attempt + 1), 60) + (time.time() % 1)
+
     def execute_all(
         self,
         requests_list: List[Dict[str, Any]],
@@ -219,10 +228,10 @@ class QueuedOpenRouterClient:
                 if 'reasoning_effort' in request:
                     data['reasoning_effort'] = request['reasoning_effort']
 
-                # Add response format if supported
-                model = request['model']
-                if 'response_format' in request and model in self.STRUCTURED_OUTPUT_MODELS:
+                # Enforce the JSON schema; route only to providers that support it
+                if 'response_format' in request:
                     data['response_format'] = request['response_format']
+                    data['provider'] = {'require_parameters': True}
 
                 # Make async HTTP request
                 async with session.post(self.base_url, headers=headers, json=data) as response:
@@ -244,26 +253,25 @@ class QueuedOpenRouterClient:
                             "content": content
                         }
 
-            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-                # Retryable errors
-                if attempt < self.max_retries - 1:
-                    wait_time = (2 ** attempt) + (time.time() % 1)
-                    await asyncio.sleep(wait_time)
-                else:
-                    return custom_id, {
-                        "status": "error",
-                        "error": f"Max retries exceeded: {str(e)}"
-                    }
-
             except aiohttp.ClientResponseError as e:
-                # HTTP errors (rate limiting, server errors)
+                # HTTP errors (rate limiting, server errors). Caught before ClientError,
+                # its parent class, so 429s get the patient backoff below.
                 if e.status in [429, 500, 502, 503, 504] and attempt < self.max_retries - 1:
-                    wait_time = (2 ** attempt) + (time.time() % 1)
-                    await asyncio.sleep(wait_time)
+                    await asyncio.sleep(self._retry_wait(attempt, e))
                 else:
                     return custom_id, {
                         "status": "error",
                         "error": str(e)
+                    }
+
+            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                # Retryable errors
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self._retry_wait(attempt))
+                else:
+                    return custom_id, {
+                        "status": "error",
+                        "error": f"Max retries exceeded: {str(e)}"
                     }
 
             except Exception as e:
