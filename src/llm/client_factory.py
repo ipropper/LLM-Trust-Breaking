@@ -9,6 +9,7 @@ Model names without a provider prefix are automatically normalised
 (e.g. "gpt-4o-mini" → "openai/gpt-4o-mini", "claude-3.5-sonnet" → "anthropic/claude-3.5-sonnet").
 """
 
+import os
 from typing import Tuple
 from src.llm.providers.openai_client import OpenAIClient
 from src.llm.providers.openrouter_client import OpenRouterClient
@@ -37,6 +38,10 @@ def is_openai_model(model: str) -> bool:
         >>> is_openai_model("meta-llama/llama-3.3-70b")
         False
     """
+    # OPENAI_VIA_OPENROUTER=true sends OpenAI models through OpenRouter instead
+    if os.getenv("OPENAI_VIA_OPENROUTER", "").lower() == "true":
+        return False
+
     # Remove provider prefix if present
     base_model = model.split("/")[-1].lower()
 
