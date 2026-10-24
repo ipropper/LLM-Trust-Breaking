@@ -1,4 +1,4 @@
-"""Run the frozen monitor on every record x view x model, then print the results table.
+"""Run the monitor on every record x view x model, then print the results table.
 
 Usage: ../.venv/bin/python run_monitor.py [--limit N]
 Results append to outputs/monitor_study/monitor_runs.jsonl; finished calls are skipped on rerun.

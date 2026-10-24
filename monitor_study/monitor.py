@@ -1,6 +1,6 @@
-"""The frozen v1 monitor: one shared preamble, one question per view.
+"""Monitor v1 (draft): one shared preamble, one question per view.
 
-Nothing here may change after the full run; the git commit is the freeze record.
+Still being debugged on the pilot data. Freeze it (and record the commit) before the final run.
 """
 
 import json
@@ -14,7 +14,7 @@ from src.endogenous.core.prompt_builders import _get_game_rules  # noqa: E402
 MODELS = ["openai/gpt-5-nano", "anthropic/claude-haiku-5.5"]
 VIEWS = ["A_says", "B_does", "C_says_does"]
 TEMPERATURE = 0
-MAX_TOKENS = 2000  # GPT-5 nano spends tokens on hidden reasoning before answering
+MAX_TOKENS = 8000  # GPT-5 nano spends tokens on hidden reasoning; 2000 left some replies empty
 
 # Exactly the rules text the agents saw
 RULES = _get_game_rules("diners", ["J", "M", "Q", "T", "Z"], {})
