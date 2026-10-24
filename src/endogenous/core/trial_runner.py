@@ -60,9 +60,13 @@ def _model_supports_structured_output(model: str) -> bool:
     """
     Check if a specific model supports OpenAI structured output format.
 
-    Only OpenAI models (gpt-*, o1*, o3*) support the response_format JSON schema.
-    Claude/Anthropic models do not, even when routed through OpenRouter.
+    Anything routed through OpenRouter gets the schema: the queued OpenRouter client
+    asks OpenRouter to use only providers that enforce it.
+    Direct-OpenAI routing keeps the original rules below.
     """
+    if not is_openai_model(model):
+        return True
+
     # Reasoning models don't support structured output
     if _is_reasoning_model(model):
         return False
@@ -167,6 +171,39 @@ def _execute_requests_split_by_provider(
         openrouter_results = queued_openrouter_client.execute_all(openrouter_requests)
         results.update(openrouter_results)
 
+    return results
+
+
+def _execute_with_parse_retries(
+    requests: List[Dict[str, Any]],
+    queued_openai_client: Any,
+    queued_openrouter_client: Any,
+    progress_desc: str,
+    action_field: str,
+    game_type: str,
+    max_extra_attempts: int = 2,
+) -> Dict[str, Any]:
+    """Execute requests, then resend any whose reply has no valid `action_field`.
+
+    Covers replies that arrive but can't be read (e.g. a model that degenerates into
+    whitespace before writing the action). Returns the latest reply for every request.
+    """
+    results = _execute_requests_split_by_provider(
+        requests, queued_openai_client, queued_openrouter_client, progress_desc
+    )
+    for attempt in range(max_extra_attempts):
+        failed = [
+            r for r in requests
+            if _normalize_action(
+                _parse_response(results.get(r["custom_id"], {}), [action_field]).get(action_field), game_type
+            ) is None
+        ]
+        if not failed:
+            break
+        print(f"  {progress_desc}: retrying {len(failed)} unparsed replies (attempt {attempt + 1})")
+        results.update(_execute_requests_split_by_provider(
+            failed, queued_openai_client, queued_openrouter_client, progress_desc
+        ))
     return results
 
 
@@ -1111,6 +1148,10 @@ def _assemble_trial_results(
                     "_parse_ok":     j.get("_parse_ok", False),
                 },
             }
+            # Keep the raw API reply for any stage that failed, so failures can be diagnosed
+            for stage, src in (("stage1", s1), ("stage2", s2), ("stage3", s3)):
+                if src.get("_raw_reply") is not None:
+                    agent_data[agent_name][stage]["_raw_reply"] = src["_raw_reply"]
 
         # Compute outcomes for this trial (stored at trial level)
         choices  = {a: stage3_all.get(f"{trial_id}_{a}", {}).get("choice") for a in agent_names}
@@ -1246,8 +1287,9 @@ def run_all_trials_queued(
                 s1_requests.append(req)
 
         print(f"\n  Stage 1: {len(s1_requests)} requests")
-        s1_raw = _execute_requests_split_by_provider(
-            s1_requests, queued_openai_client, queued_openrouter_client, "Stage 1"
+        s1_raw = _execute_with_parse_retries(
+            s1_requests, queued_openai_client, queued_openrouter_client, "Stage 1",
+            "intended_action", game_type,
         )
 
         stage1_parsed: Dict[str, Dict[str, Any]] = {}
@@ -1260,6 +1302,7 @@ def run_all_trials_queued(
                     "intended_action": action,
                     "reasoning":       parsed.get("reasoning", ""),
                     "_parse_ok":       action is not None,
+                    "_raw_reply":      None if action is not None else s1_raw.get(cid),
                 }
 
         # ---- Stage 2 ----
@@ -1297,8 +1340,9 @@ def run_all_trials_queued(
                     s2_requests.append(req)
 
             print(f"\n  Stage 2 (simultaneous): {len(s2_requests)} requests")
-            s2_raw = _execute_requests_split_by_provider(
-                s2_requests, queued_openai_client, queued_openrouter_client, "Stage 2"
+            s2_raw = _execute_with_parse_retries(
+                s2_requests, queued_openai_client, queued_openrouter_client, "Stage 2",
+                "stated_action", game_type,
             )
 
             for trial_id in trial_ids:
@@ -1310,6 +1354,7 @@ def run_all_trials_queued(
                         "stated_action": action,
                         "message":       parsed.get("message", ""),
                         "_parse_ok":     action is not None,
+                        "_raw_reply":    None if action is not None else s2_raw.get(cid),
                         "position":      pos,
                     }
 
@@ -1353,8 +1398,9 @@ def run_all_trials_queued(
                     position_requests.append(req)
 
                 print(f"\n  Stage 2 (round-robin) pos {pos} ({agent_name}): {len(position_requests)} requests")
-                pos_raw = _execute_requests_split_by_provider(
-                    position_requests, queued_openai_client, queued_openrouter_client, f"Stage 2 pos {pos}"
+                pos_raw = _execute_with_parse_retries(
+                    position_requests, queued_openai_client, queued_openrouter_client, f"Stage 2 pos {pos}",
+                    "stated_action", game_type,
                 )
 
                 for trial_id in trial_ids:
@@ -1365,6 +1411,7 @@ def run_all_trials_queued(
                         "stated_action": action,
                         "message":       parsed.get("message", ""),
                         "_parse_ok":     action is not None,
+                        "_raw_reply":    None if action is not None else pos_raw.get(cid),
                         "position":      pos,
                         "prior_seen":    list(announcement_order[:pos]),
                     }
@@ -1405,8 +1452,9 @@ def run_all_trials_queued(
                 s3_requests.append(req)
 
         print(f"\n  Stage 3: {len(s3_requests)} requests")
-        s3_raw = _execute_requests_split_by_provider(
-            s3_requests, queued_openai_client, queued_openrouter_client, "Stage 3"
+        s3_raw = _execute_with_parse_retries(
+            s3_requests, queued_openai_client, queued_openrouter_client, "Stage 3",
+            "choice", game_type,
         )
 
         stage3_parsed: Dict[str, Dict[str, Any]] = {}
@@ -1419,6 +1467,7 @@ def run_all_trials_queued(
                     "choice":    action,
                     "reasoning": parsed.get("reasoning", ""),
                     "_parse_ok": action is not None,
+                    "_raw_reply": None if action is not None else s3_raw.get(cid),
                 }
 
         # ---- Judge batch (LLM-as-judge, same model/client as agents) ----
