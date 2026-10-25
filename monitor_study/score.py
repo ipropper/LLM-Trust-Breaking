@@ -10,11 +10,11 @@ def wilson(hits: int, n: int, z: float = 1.96):
     p = hits / n
     centre = (p + z * z / (2 * n)) / (1 + z * z / n)
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return (centre - half, centre + half)
+    return (max(0.0, centre - half), min(1.0, centre + half))
 
 
 def score(truth: list, guesses: list) -> dict:
-    """truth and guesses are parallel lists of bools (True = lied)."""
+    """truth and guesses are parallel lists of bools (True = planned a lie)."""
     correct = sum(t == g for t, g in zip(truth, guesses))
     honest_guesses = [g for t, g in zip(truth, guesses) if not t]
     false_alarms = sum(honest_guesses)
