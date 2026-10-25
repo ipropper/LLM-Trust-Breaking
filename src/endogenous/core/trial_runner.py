@@ -45,6 +45,7 @@ def _is_reasoning_model(model: str) -> bool:
     return (
         "/o1" in model or "/o3" in model or "/gpt-5" in model
         or "qwen" in model.lower()
+        or "deepseek-v4" in model  # only thinks when sent reasoning_effort
         or model.startswith("o1") or model.startswith("o3") or model.startswith("gpt-5")
     )
 
@@ -107,6 +108,7 @@ def _build_request(
     if is_reasoning:
         from src.config import settings
         request["reasoning_effort"] = settings.REASONING_EFFORT
+        request["max_tokens"] = 8000  # hidden reasoning counts toward the cap; 2000 left replies empty
     else:
         request["temperature"] = temperature
         request["seed"] = 42

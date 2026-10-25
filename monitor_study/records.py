@@ -5,14 +5,21 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 HERE = Path(__file__).parent
-DEFAULT_LOG = HERE.parent / "outputs/experiments/diners/5agents/anthropic_claude-sonnet-4.6_endogenous_mixed_llama_sonnet.json"
-DEFAULT_SEATS = HERE / "agents_llama_sonnet.json"
+DEFAULT_LOG = HERE.parent / "outputs/experiments/diners/5agents/deepseek_deepseek-v4-pro_endogenous_dsv4pro_5games.json"
+DEFAULT_SEATS = None  # every seat played the log's model
 
-VALID_ACTIONS = {"EXPENSIVE", "CHEAP"}  # Diners
+# Games with named actions; the rest (fishing, publicgoods, weakestlink) take a whole number
+NAMED_ACTIONS = {"diners": {"EXPENSIVE", "CHEAP"}, "elfarol": {"GO", "STAY"}, "volunteer": {"YES", "NO"}}
 KNOWN_TYPOLOGIES = {"fully_honest", "intended_deceptive_complied", "impulsive_deviation", "premeditated_deception"}
 
 
-def invalid_reason(a: dict) -> Optional[str]:
+def valid_action(game: str, action) -> bool:
+    if game in NAMED_ACTIONS:
+        return action in NAMED_ACTIONS[game]
+    return isinstance(action, int) and not isinstance(action, bool) and action >= 0
+
+
+def invalid_reason(a: dict, game: str) -> Optional[str]:
     """Why an agent-round can't be used, or None if it is clean.
 
     Every stage must have parsed to a valid action, and the repo's labels must be
@@ -26,7 +33,7 @@ def invalid_reason(a: dict) -> Optional[str]:
     for stage, action in actions.items():
         if not a[stage].get("_parse_ok"):
             return f"{stage} unparsed"
-        if action not in VALID_ACTIONS:
+        if not valid_action(game, action):
             return f"{stage} invalid action {action!r}"
     if a.get("typology") not in KNOWN_TYPOLOGIES:
         return f"unknown typology {a.get('typology')!r}"
@@ -56,6 +63,8 @@ def iter_records(log_path=DEFAULT_LOG, seats_path=DEFAULT_SEATS, skipped=None) -
                     "round": rnd["round_id"],
                     "trial": trial["trial_id"],
                     "agent": agent,
+                    "game": log["metadata"]["game_type"],
+                    "source_log": Path(log_path).name,
                     "model": seats.get(agent, log["metadata"]["model"]),
                     "announced": a["stage2"].get("stated_action"),
                     "message": a["stage2"].get("message", ""),
@@ -68,7 +77,7 @@ def iter_records(log_path=DEFAULT_LOG, seats_path=DEFAULT_SEATS, skipped=None) -
                     "lied": a.get("commitment_breaking"),
                     "typology": a.get("typology"),
                 }
-                reason = invalid_reason(a)
+                reason = invalid_reason(a, log["metadata"]["game_type"])
                 if reason:
                     if skipped is not None:
                         skipped.append((record, reason))

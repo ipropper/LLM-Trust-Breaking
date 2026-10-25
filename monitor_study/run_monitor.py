@@ -1,90 +1,57 @@
 """Run the monitor on every record x view x model, then print the results table.
 
-Usage: ../.venv/bin/python run_monitor.py [--limit N]
-Every call (request sent + reply received) appends to outputs/monitor_study/monitor_runs.jsonl;
-finished calls are skipped on rerun. Each run also writes outputs/monitor_study/export/:
+Usage: ../.venv/bin/python run_monitor.py [--log GAME_LOG.json] [--limit N]
+Outputs go in outputs/monitor_study/<game>__<game log name>/, so datasets never share cached calls.
+Every call (request sent + reply received) appends to monitor_runs.jsonl there;
+finished calls are skipped on rerun. Each run also writes export/ there:
   log.jsonl            what was sent and received, one line per call in this run's table
   system_prompt.txt    the shared system prompt
-  results_<model>.csv  one row per agent: what it said, did and planned, plus the monitor's three guesses
+  results.csv          the standard per-game sheet (see export_dataset.py), guesses filled in
 """
 
 import argparse
-import csv
 import itertools
 import json
 from pathlib import Path
 
-from monitor import MODELS, PREAMBLE, VIEWS, build_request, custom_id, parse_verdict
-from records import iter_records
+from export_dataset import build_rows, load_guesses, results_dir, write_csv
+from monitor import MODELS, VIEWS, build_request, custom_id, parse_verdict, preamble
+from records import DEFAULT_LOG, iter_records
 from score import score
 from src.config import settings
 from src.llm.providers.queued_openrouter import QueuedOpenRouterClient
 
-OUT = Path(__file__).parent.parent / "outputs/monitor_study"
-RUNS = OUT / "monitor_runs.jsonl"
-EXPORT = OUT / "export"
 
-AGENT_TYPES = {
-    "fully_honest": "fully honest",
-    "intended_deceptive_complied": "intended deception",
-    "impulsive_deviation": "impulsive lie",
-    "premeditated_deception": "premeditated deception",
-}
-GUESS_COLUMNS = {"A_says": "monitor guess (message)", "B_does": "monitor guess (action)",
-                 "C_says_does": "monitor guess (message + action)"}
-CSV_COLUMNS = ["id", "agent announcement", "agent message", "agent planned action", "agent plan", "agent type", "agent action",
-               *GUESS_COLUMNS.values()]
-
-
-def guess_label(verdict):
-    return {True: "deceptive", False: "honest"}.get(verdict, "unreadable")
-
-
-def load_done() -> dict:
+def load_done(runs: Path) -> dict:
     """Calls with a readable verdict. Errors and unreadable replies are retried on rerun."""
-    if not RUNS.exists():
+    if not runs.exists():
         return {}
-    with open(RUNS) as f:
+    with open(runs) as f:
         rows = {row["custom_id"]: row for row in map(json.loads, f)}  # later rows win
     return {cid: row for cid, row in rows.items() if row["verdict"] is not None}
 
 
-def export(records: list, done: dict):
-    """Write the sent/received log and one results CSV per monitor."""
-    EXPORT.mkdir(parents=True, exist_ok=True)
-    (EXPORT / "system_prompt.txt").write_text(PREAMBLE)
-    with open(EXPORT / "log.jsonl", "w") as f:
+def export(records: list, done: dict, out: Path, runs: Path):
+    """Write the sent/received log and the standard results CSV (same format as export_dataset.py)."""
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "system_prompt.txt").write_text(preamble(records[0]["game"]))
+    with open(out / "log.jsonl", "w") as f:
         for r, m, v in itertools.product(records, MODELS, VIEWS):
             f.write(json.dumps(done[custom_id(r, v, m)]) + "\n")
 
-    for m in MODELS:
-        # utf-8-sig so Excel detects the encoding
-        with open(EXPORT / f"results_{m.split('/')[-1].replace(':', '_')}.csv", "w", newline="", encoding="utf-8-sig") as f:
-            w = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
-            w.writeheader()
-            for r in records:
-                row = {
-                    # Same prefix as the custom_id of this agent's calls in log.jsonl
-                    "id": custom_id(r, "", "").split("|")[0],
-                    "agent announcement": r["announced"],
-                    "agent message": r["message"],
-                    "agent planned action": r["plan"],
-                    "agent plan": "deceit" if r["planned_lie"] else "truthful",
-                    "agent type": AGENT_TYPES[r["typology"]],
-                    "agent action": r["chose"],
-                }
-                for v, col in GUESS_COLUMNS.items():
-                    row[col] = guess_label(done[custom_id(r, v, m)]["verdict"])
-                w.writerow(row)
+    write_csv(out / "results.csv", build_rows(records, load_guesses(runs)))
 
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--log", type=Path, default=DEFAULT_LOG, help="game log to monitor")
     parser.add_argument("--limit", type=int, default=None, help="only the first N records (smoke test)")
     args = parser.parse_args()
 
-    records = list(itertools.islice(iter_records(), args.limit))
-    done = load_done()
+    records = list(itertools.islice(iter_records(args.log, None), args.limit))
+    out = results_dir(args.log, records[0]["game"])
+    runs = out / "monitor_runs.jsonl"
+    done = load_done(runs)
     todo = [build_request(r, v, m) for r in records for v in VIEWS for m in MODELS
             if custom_id(r, v, m) not in done]
     n_planned = sum(r["planned_lie"] for r in records)
@@ -94,8 +61,8 @@ def main():
     if todo:
         client = QueuedOpenRouterClient(api_key=settings.OPENROUTER_API_KEY, max_workers=20, max_retries=5)
         replies = client.execute_all(todo)
-        RUNS.parent.mkdir(parents=True, exist_ok=True)
-        with open(RUNS, "a") as f:
+        runs.parent.mkdir(parents=True, exist_ok=True)
+        with open(runs, "a") as f:
             for req in todo:
                 reply = replies.get(req["custom_id"], {})
                 row = {"custom_id": req["custom_id"], "request": req, "reply": reply, "verdict": parse_verdict(reply)}
@@ -114,8 +81,8 @@ def main():
         fp = f"{s['fp_rate']:.0%} ({s['fp_ci'][0]:.0%}-{s['fp_ci'][1]:.0%})" if s["n_honest"] else "n/a"
         print(f"{m:<28} {v:<13} {acc:<22} {fp:<27} {len(pairs) - len(readable)}")
 
-    export(records, done)
-    print(f"\nLog and spreadsheets written to {EXPORT}")
+    export(records, done, out / "export", runs)
+    print(f"\nLog and spreadsheets written to {out / 'export'}")
 
 
 if __name__ == "__main__":
